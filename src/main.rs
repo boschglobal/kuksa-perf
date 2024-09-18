@@ -11,15 +11,12 @@
 * SPDX-License-Identifier: Apache-2.0
 ********************************************************************************/
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use measure::{perform_measurement, Api, MeasurementConfig};
 use shutdown::setup_shutdown_handler;
-use std::{
-    cmp::{max, min},
-    time::Duration,
-};
-use tonic::transport::channel::Endpoint;
+use std::cmp::{max, min};
+
 use utils::read_config;
 
 mod config;
@@ -63,14 +60,14 @@ struct Args {
     )]
     skip: u64,
 
-    /// Minimum interval in milliseconds between iterations.
+    /// Print more details in the summary result
     #[clap(
         long,
         display_order = 6,
-        value_name = "MILLISECONDS",
-        default_value_t = 0
+        value_name = "Detailed ouput result",
+        default_value_t = false
     )]
-    interval: u16,
+    detail_output: bool,
 
     /// Path to configuration file
     #[clap(long = "config", display_order = 7, value_name = "FILE")]
@@ -104,21 +101,6 @@ fn setup_logging(verbosity_level: log::Level) -> Result<()> {
     Ok(())
 }
 
-fn create_databroker_endpoint(host: String, port: u64) -> Result<Endpoint> {
-    let databroker_address = format!("{}:{}", host, port);
-
-    let endpoint = tonic::transport::Channel::from_shared(databroker_address.clone())
-        .with_context(|| "Failed to parse server url")?;
-    let endpoint = endpoint
-        .initial_stream_window_size(1000 * 3 * 128 * 1024) // 20 MB stream window size
-        .initial_connection_window_size(1000 * 3 * 128 * 1024) // 20 MB connection window size
-        .keep_alive_timeout(Duration::from_secs(1)) // 60 seconds keepalive time
-        .keep_alive_timeout(Duration::from_secs(1)) // 20 seconds keepalive timeout
-        .timeout(Duration::from_secs(1));
-
-    Ok(endpoint)
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -134,23 +116,22 @@ async fn main() -> Result<()> {
         api = Api::KuksaValV2;
     }
 
-    let config_signals = read_config(args.config_file.as_ref())?;
+    let config_groups = read_config(args.config_file.as_ref())?;
 
     // Skip at most _iterations_ number of iterations
     let skip = max(0, min(args.iterations, args.skip));
 
-    let endpoint = create_databroker_endpoint(args.host, args.port)?;
-
     let measurement_config = MeasurementConfig {
-        endpoint,
-        config_signals,
+        host: args.host,
+        port: args.port,
         iterations: args.iterations,
-        interval: args.interval,
+        interval: 0,
         skip,
         api,
         run_forever: args.run_forever,
+        detail_output: args.detail_output,
     };
 
-    perform_measurement(measurement_config, shutdown_handler).await?;
+    perform_measurement(measurement_config, config_groups, shutdown_handler).await?;
     Ok(())
 }

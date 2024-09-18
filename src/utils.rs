@@ -11,19 +11,20 @@
 * SPDX-License-Identifier: Apache-2.0
 ********************************************************************************/
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Ok, Result};
 use console::Term;
-use hdrhistogram::Histogram;
 use log::debug;
 use serde_json::from_reader;
 use std::{cmp::max, fs::OpenOptions, io::Write, time::SystemTime};
 
 use crate::{
-    config::{Config, Signal},
-    measure::Api,
+    config::{Config, Group},
+    measure::MeasurementResult,
 };
 
-pub fn read_config(config_file: Option<&String>) -> Result<Vec<Signal>> {
+const MAX_NUMBER_OF_GROUPS: usize = 10;
+
+pub fn read_config(config_file: Option<&String>) -> Result<Vec<Group>> {
     match config_file {
         Some(filename) => {
             let file = OpenOptions::new()
@@ -32,37 +33,42 @@ pub fn read_config(config_file: Option<&String>) -> Result<Vec<Signal>> {
                 .with_context(|| format!("Failed to open configuration file '{}'", filename))?;
             let config: Config = from_reader(file)
                 .with_context(|| format!("Failed to parse configuration file '{}'", filename))?;
-            Ok::<Vec<Signal>, anyhow::Error>(config.signals)
+            
+            if config.groups.len() > MAX_NUMBER_OF_GROUPS {
+                return Err(anyhow!(
+                    "The number of groups exceeds the maximum allowed limit of {}",
+                    MAX_NUMBER_OF_GROUPS
+                ));
+            }
+
+            Ok(config.groups)
         }
         None => {
-            // Default set of signals
-            Ok(vec![Signal {
-                path: "Vehicle.Cabin.Infotainment.Media.Played.Track".to_owned(),
-            }])
+            // Return a default set of groups or handle the None case appropriately
+            Ok(vec![])
         }
     }
 }
 
-pub async fn write_output(
-    start_time: SystemTime,
-    interval: u16,
-    iterations: u64,
-    number_of_signals: u64,
-    skipped: u64,
-    hist: Histogram<u64>,
-    api: Api,
-) -> Result<()> {
+pub fn write_output(measurement_result: &MeasurementResult) -> Result<()> {
     let mut stdout = Term::stdout();
     let end_time = SystemTime::now();
-    let total_duration = end_time.duration_since(start_time)?;
-    writeln!(stdout, "\n\nSummary:")?;
-    writeln!(stdout, "  API: {}", api)?;
+    let total_duration = end_time.duration_since(measurement_result.start_time)?;
+    let measurement_context = &measurement_result.measurement_context;
+    let measurement_config = &measurement_context.measurement_config;
+
+    writeln!(
+        stdout,
+        "\n\nGroup: {} | Cycle time(ms): {}",
+        measurement_context.group_name, measurement_config.interval
+    )?;
+    writeln!(stdout, "  API: {}", measurement_config.api)?;
     writeln!(
         stdout,
         "  Elapsed time: {:.2} s",
         total_duration.as_millis() as f64 / 1000.0
     )?;
-    let rate_limit = match interval {
+    let rate_limit = match measurement_config.interval {
         0 => "None".into(),
         ms => format!("{} ms between iterations", ms),
     };
@@ -70,55 +76,87 @@ pub async fn write_output(
     writeln!(
         stdout,
         "  Sent: {} iterations * {} signals = {} updates",
-        iterations,
-        number_of_signals,
-        iterations * number_of_signals
+        measurement_result.iterations_executed,
+        measurement_context.signals.len(),
+        measurement_result.iterations_executed * measurement_context.signals.len() as u64
     )?;
-    writeln!(stdout, "  Skipped: {} updates", skipped)?;
-    writeln!(stdout, "  Received: {} updates", hist.len())?;
-    writeln!(stdout, "  Fastest: {:>7.3} ms", hist.min() as f64 / 1000.0)?;
-    writeln!(stdout, "  Slowest: {:>7.3} ms", hist.max() as f64 / 1000.0)?;
-    writeln!(stdout, "  Average: {:>7.3} ms", hist.mean() / 1000.0)?;
-    writeln!(stdout, "\nLatency histogram:")?;
+    writeln!(
+        stdout,
+        "  Skipped: {} updates",
+        measurement_result.iterations_skipped
+    )?;
+    writeln!(
+        stdout,
+        "  Received: {} updates",
+        measurement_context.hist.len()
+    )?;
+    writeln!(
+        stdout,
+        "  Fastest: {:>7.3} ms",
+        measurement_context.hist.min() as f64 / 1000.0
+    )?;
+    writeln!(
+        stdout,
+        "  Slowest: {:>7.3} ms",
+        measurement_context.hist.max() as f64 / 1000.0
+    )?;
+    writeln!(
+        stdout,
+        "  Average: {:>7.3} ms",
+        measurement_context.hist.mean() / 1000.0
+    )?;
 
-    let step_size = max(1, (hist.max() - hist.min()) / 11);
+    if measurement_config.detail_output {
+        writeln!(stdout, "\nLatency histogram:")?;
 
-    let buckets = hist.iter_linear(step_size);
+        let step_size = max(
+            1,
+            (measurement_context.hist.max() - measurement_context.hist.min()) / 11,
+        );
 
-    // skip initial empty buckets
-    let buckets = buckets.skip_while(|v| v.count_since_last_iteration() == 0);
+        let buckets = measurement_context.hist.iter_linear(step_size);
 
-    let mut histogram = Vec::with_capacity(11);
+        // skip initial empty buckets
+        let buckets = buckets.skip_while(|v| v.count_since_last_iteration() == 0);
 
-    for v in buckets {
-        let mean = v.value_iterated_to() + 1 - step_size / 2; // +1 to make range inclusive
-        let count = v.count_since_last_iteration();
-        histogram.push((mean, count));
-    }
+        let mut histogram = Vec::with_capacity(11);
 
-    let (_, cols) = stdout.size();
-    debug!("Number of columns: {cols}");
+        for v in buckets {
+            let mean = v.value_iterated_to() + 1 - step_size / 2; // +1 to make range inclusive
+            let count = v.count_since_last_iteration();
+            histogram.push((mean, count));
+        }
 
-    for (mean, count) in histogram {
-        let bars = count as f64 / (hist.len() * number_of_signals) as f64 * (cols - 22) as f64;
-        let bar = "∎".repeat(bars as usize);
-        writeln!(
-            stdout,
-            "  {:>7.3} ms [{:<5}] |{}",
-            mean as f64 / 1000.0,
-            count,
-            bar
-        )?;
-    }
+        let (_, cols) = stdout.size();
+        debug!("Number of columns: {cols}");
 
-    writeln!(stdout, "\nLatency distribution:")?;
+        for (mean, count) in histogram {
+            let bars = count as f64
+                / (measurement_context.hist.len() * measurement_context.signals.len() as u64)
+                    as f64
+                * (cols - 22) as f64;
+            let bar = "∎".repeat(bars as usize);
+            writeln!(
+                stdout,
+                "  {:>7.3} ms [{:<5}] |{}",
+                mean as f64 / 1000.0,
+                count,
+                bar
+            )?;
+        }
 
-    for q in &[10, 25, 50, 75, 90, 95, 99] {
-        writeln!(
-            stdout,
-            "  {q}% in under {:.3} ms",
-            hist.value_at_quantile(*q as f64 / 100.0) as f64 / 1000.0
-        )?;
+        writeln!(stdout, "\nLatency distribution:")?;
+
+        for q in &[10, 25, 50, 75, 90, 95, 99] {
+            writeln!(
+                stdout,
+                "  {q}% in under {:.3} ms",
+                measurement_context
+                    .hist
+                    .value_at_quantile(*q as f64 / 100.0) as f64
+                    / 1000.0
+            )?;
+        }
     }
     Ok(())
 }
