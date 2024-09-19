@@ -85,17 +85,17 @@ If running on MacOS:
 Usage: databroker-perf [OPTIONS]
 
 Options:
-  -i, --iterations <ITERATIONS>  Number of iterations to run [default: 1000]
-      --api <API>                Api of databroker [default: kuksa.val.v1] [possible values: kuksa.val.v1, kuksa.val.v2, sdv.databroker.v1]
-      --host <HOST>              Host address of databroker [default: http://127.0.0.1]
-      --port <PORT>              Port of databroker [default: 55555]
-      --skip <ITERATIONS>        Number of iterations to run (skip) before measuring the latency [default: 10]
-      --detail-output            Print more details in the summary result
-      --config <FILE>            Path to configuration file
-      --run-forever              Run the measurements forever (until receiving a shutdown signal)
-  -v, --verbosity <LEVEL>        Verbosity level. Can be one of ERROR, WARN, INFO, DEBUG, TRACE [default: WARN]
-  -h, --help                     Print help
-  -V, --version                  Print version
+  -r, --run-seconds <RUN_SECONDS>  Number of seconds to run [default: 8]
+      --api <API>                  Api of databroker [default: kuksa.val.v1] [possible values: kuksa.val.v1, kuksa.val.v2, sdv.databroker.v1]
+      --host <HOST>                Host address of databroker [default: http://127.0.0.1]
+      --port <PORT>                Port of databroker [default: 55555]
+      --skip-seconds <ITERATIONS>  Seconds to run (skip) before measuring the latency [default: 4]
+      --detail-output              Print more details in the summary result
+      --config <FILE>              Path to configuration file
+      --run-forever                Run the measurements forever (until receiving a shutdown signal)
+  -v, --verbosity <LEVEL>          Verbosity level. Can be one of ERROR, WARN, INFO, DEBUG, TRACE [default: WARN]
+  -h, --help                       Print help
+  -V, --version                    Print version
 ```
 
 ```
