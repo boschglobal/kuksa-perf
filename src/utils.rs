@@ -18,7 +18,7 @@ use serde_json::from_reader;
 use std::{cmp::max, fs::OpenOptions, io::Write, time::SystemTime};
 
 use crate::{
-    config::{Config, Group},
+    config::{Config, Group, Signal},
     measure::MeasurementResult,
 };
 
@@ -33,7 +33,7 @@ pub fn read_config(config_file: Option<&String>) -> Result<Vec<Group>> {
                 .with_context(|| format!("Failed to open configuration file '{}'", filename))?;
             let config: Config = from_reader(file)
                 .with_context(|| format!("Failed to parse configuration file '{}'", filename))?;
-            
+
             if config.groups.len() > MAX_NUMBER_OF_GROUPS {
                 return Err(anyhow!(
                     "The number of groups exceeds the maximum allowed limit of {}",
@@ -45,7 +45,29 @@ pub fn read_config(config_file: Option<&String>) -> Result<Vec<Group>> {
         }
         None => {
             // Return a default set of groups or handle the None case appropriately
-            Ok(vec![])
+            Ok(vec![
+                Group {
+                    group_name: String::from("Frame A"),
+                    cycle_time_ms: 10,
+                    signals: vec![Signal {
+                        path: String::from("Vehicle.Speed"),
+                    }],
+                },
+                Group {
+                    group_name: String::from("Frame B"),
+                    cycle_time_ms: 20,
+                    signals: vec![Signal {
+                        path: String::from("Vehicle.IsBrokenDown"),
+                    }],
+                },
+                Group {
+                    group_name: String::from("Frame C"),
+                    cycle_time_ms: 30,
+                    signals: vec![Signal {
+                        path: String::from("Vehicle.Body.Windshield.Front.Wiping.Intensity"),
+                    }],
+                },
+            ])
         }
     }
 }
@@ -62,51 +84,62 @@ pub fn write_output(measurement_result: &MeasurementResult) -> Result<()> {
         "\n\nGroup: {} | Cycle time(ms): {}",
         measurement_context.group_name, measurement_config.interval
     )?;
-    writeln!(stdout, "  API: {}", measurement_config.api)?;
-    writeln!(
-        stdout,
-        "  Elapsed time: {:.2} s",
-        total_duration.as_millis() as f64 / 1000.0
-    )?;
-    let rate_limit = match measurement_config.interval {
-        0 => "None".into(),
-        ms => format!("{} ms between iterations", ms),
-    };
-    writeln!(stdout, "  Rate limit: {}", rate_limit)?;
-    writeln!(
-        stdout,
-        "  Sent: {} iterations * {} signals = {} updates",
-        measurement_result.iterations_executed,
-        measurement_context.signals.len(),
-        measurement_result.iterations_executed * measurement_context.signals.len() as u64
-    )?;
-    writeln!(
-        stdout,
-        "  Skipped: {} updates",
-        measurement_result.iterations_skipped
-    )?;
-    writeln!(
-        stdout,
-        "  Received: {} updates",
-        measurement_context.hist.len()
-    )?;
-    writeln!(
-        stdout,
-        "  Fastest: {:>7.3} ms",
-        measurement_context.hist.min() as f64 / 1000.0
-    )?;
-    writeln!(
-        stdout,
-        "  Slowest: {:>7.3} ms",
-        measurement_context.hist.max() as f64 / 1000.0
-    )?;
-    writeln!(
-        stdout,
-        "  Average: {:>7.3} ms",
-        measurement_context.hist.mean() / 1000.0
-    )?;
 
-    if measurement_config.detail_output {
+    if !measurement_config.detail_output {
+        writeln!(
+            stdout,
+            "  Average:   {:>7.3} ms",
+            measurement_context.hist.mean() / 1000.0
+        )?;
+        writeln!(
+            stdout,
+            "  95% in under {:.3} ms",
+            measurement_context.hist.value_at_quantile(95_f64 / 100.0) as f64 / 1000.0
+        )?;
+    } else {
+        writeln!(
+            stdout,
+            "  Elapsed time: {:.2} s",
+            total_duration.as_millis() as f64 / 1000.0
+        )?;
+        let rate_limit = match measurement_config.interval {
+            0 => "None".into(),
+            ms => format!("{} ms between iterations", ms),
+        };
+        writeln!(stdout, "  Rate limit: {}", rate_limit)?;
+        writeln!(
+            stdout,
+            "  Sent: {} iterations * {} signals = {} updates",
+            measurement_result.iterations_executed,
+            measurement_context.signals.len(),
+            measurement_result.iterations_executed * measurement_context.signals.len() as u64
+        )?;
+        writeln!(
+            stdout,
+            "  Skipped: {} updates",
+            measurement_result.iterations_skipped
+        )?;
+        writeln!(
+            stdout,
+            "  Received: {} updates",
+            measurement_context.hist.len()
+        )?;
+        writeln!(
+            stdout,
+            "  Fastest: {:>7.3} ms",
+            measurement_context.hist.min() as f64 / 1000.0
+        )?;
+        writeln!(
+            stdout,
+            "  Slowest: {:>7.3} ms",
+            measurement_context.hist.max() as f64 / 1000.0
+        )?;
+        writeln!(
+            stdout,
+            "  Average: {:>7.3} ms",
+            measurement_context.hist.mean() / 1000.0
+        )?;
+
         writeln!(stdout, "\nLatency histogram:")?;
 
         let step_size = max(

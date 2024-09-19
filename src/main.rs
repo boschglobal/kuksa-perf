@@ -29,15 +29,15 @@ mod utils;
 #[derive(Parser)]
 #[clap(author, version, about)]
 struct Args {
-    /// Number of iterations to run.
+    /// Number of seconds to run.
     #[clap(
         long,
         short,
         display_order = 1,
-        default_value_t = 1000,
+        default_value_t = 8,
         conflicts_with = "run_forever"
     )]
-    iterations: u64,
+    run_seconds: u64,
 
     /// Api of databroker.
     #[clap(long, display_order = 2, default_value = "kuksa.val.v1", value_parser = clap::builder::PossibleValuesParser::new(["kuksa.val.v1", "kuksa.val.v2", "sdv.databroker.v1"]))]
@@ -51,14 +51,14 @@ struct Args {
     #[clap(long, display_order = 4, default_value_t = 55555)]
     port: u64,
 
-    /// Number of iterations to run (skip) before measuring the latency.
+    /// Seconds to run (skip) before measuring the latency.
     #[clap(
         long,
         display_order = 5,
         value_name = "ITERATIONS",
-        default_value_t = 10
+        default_value_t = 4
     )]
-    skip: u64,
+    skip_seconds: u64,
 
     /// Print more details in the summary result
     #[clap(
@@ -78,7 +78,8 @@ struct Args {
         long,
         action = clap::ArgAction::SetTrue,
         display_order = 8,
-        conflicts_with = "iterations"
+        conflicts_with = "seconds",
+        default_value_t = false
     )]
     run_forever: bool,
 
@@ -119,14 +120,14 @@ async fn main() -> Result<()> {
     let config_groups = read_config(args.config_file.as_ref())?;
 
     // Skip at most _iterations_ number of iterations
-    let skip = max(0, min(args.iterations, args.skip));
+    let skip_seconds = max(0, min(args.run_seconds, args.skip_seconds));
 
     let measurement_config = MeasurementConfig {
         host: args.host,
         port: args.port,
-        iterations: args.iterations,
+        run_seconds: args.run_seconds,
         interval: 0,
-        skip,
+        skip_seconds,
         api,
         run_forever: args.run_forever,
         detail_output: args.detail_output,

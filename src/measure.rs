@@ -50,9 +50,9 @@ pub struct Provider {
 pub struct MeasurementConfig {
     pub host: String,
     pub port: u64,
-    pub iterations: u64,
+    pub run_seconds: u64,
     pub interval: u16,
-    pub skip: u64,
+    pub skip_seconds: u64,
     pub api: Api,
     pub run_forever: bool,
     pub detail_output: bool,
@@ -197,13 +197,13 @@ pub async fn perform_measurement(
         let progress = if measurement_config.run_forever {
             ProgressBar::new_spinner().with_style(
                 // TODO: Add average latency etc...
-                ProgressStyle::with_template("[{elapsed_precise}] {wide_msg} {pos:>7} iterations")
+                ProgressStyle::with_template("[{elapsed_precise}] {wide_msg} {pos:>7} seconds")
                     .unwrap(),
             )
         } else {
-            ProgressBar::new(measurement_config.iterations).with_style(
+            ProgressBar::new(measurement_config.run_seconds).with_style(
                 ProgressStyle::with_template(
-                    "[{elapsed_precise}] {msg} [{wide_bar}] {pos:>7}/{len:7} iterations",
+                    "[{elapsed_precise}] {msg} [{wide_bar}] {pos:>7}/{len:7} seconds",
                 )
                 .unwrap()
                 .progress_chars("=> "),
@@ -244,6 +244,16 @@ pub async fn perform_measurement(
     while let Some(received) = tasks.join_next().await {
         match received {
             Ok(Ok(measurement_result)) => {
+                // Whenever the first measurement result is received it should stop the execution of the remaning running groups.
+                measurement_result
+                    .measurement_context
+                    .shutdown_handler
+                    .write()
+                    .await
+                    .state
+                    .running
+                    .store(false, Ordering::SeqCst);
+
                 measurements_results.push(measurement_result);
             }
             Ok(Err(err)) => {
@@ -257,7 +267,21 @@ pub async fn perform_measurement(
         }
     }
 
-    print!("Summary:");
+    print!("\n\nSummary:");
+    print!("\n  API: {}", measurement_config.api);
+    if measurement_config.run_forever {
+        print!("\n  Run forever:         Activated");
+    } else {
+        print!(
+            "\n  Run seconds:         {}",
+            measurement_config.run_seconds
+        );
+    }
+    print!(
+        "\n  Skipped run seconds: {}",
+        measurement_config.skip_seconds
+    );
+
     for group in config_groups {
         let measurement_result = measurements_results
             .iter()
@@ -272,6 +296,11 @@ async fn measurement_loop(ctx: &mut MeasurementContext) -> Result<(u64, u64)> {
     let mut iterations = 0;
     let mut skipped = 0;
     let mut last_running_hist = Instant::now();
+    let start_run = Instant::now();
+
+    let run_milliseconds = ctx.measurement_config.run_seconds * 1000;
+    let skip_milliseconds = ctx.measurement_config.skip_seconds * 1000;
+
     let mut interval_to_run = if ctx.measurement_config.interval == 0 {
         None
     } else {
@@ -281,7 +310,8 @@ async fn measurement_loop(ctx: &mut MeasurementContext) -> Result<(u64, u64)> {
     };
 
     loop {
-        if !ctx.measurement_config.run_forever && iterations >= ctx.measurement_config.iterations
+        if !ctx.measurement_config.run_forever
+            && start_run.elapsed().as_millis() >= run_milliseconds.into()
             || !ctx
                 .shutdown_handler
                 .read()
@@ -344,7 +374,7 @@ async fn measurement_loop(ctx: &mut MeasurementContext) -> Result<(u64, u64)> {
         while let Some(received) = subscriber_tasks.join_next().await {
             match received {
                 Ok(Ok(received)) => {
-                    if iterations < ctx.measurement_config.skip {
+                    if start_run.elapsed().as_millis() < skip_milliseconds.into() {
                         skipped += 1;
                         continue;
                     }
@@ -371,7 +401,7 @@ async fn measurement_loop(ctx: &mut MeasurementContext) -> Result<(u64, u64)> {
         }
 
         iterations += 1;
-        ctx.progress.set_position(iterations);
+        ctx.progress.set_position(start_run.elapsed().as_secs());
     }
     Ok((iterations, skipped))
 }
