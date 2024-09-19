@@ -102,6 +102,41 @@ Options:
 ./target/release/databroker-perf [OPTIONS]
 ```
 
+## Default test result output
+
+By default, the results output will be shown like this:
+```
+[00:00:08] Group: Frame A | Cycle(ms): 10 | Current latency: 0.725 ms [==============================================================================================================]       8/8       seconds
+[00:00:07] Group: Frame B | Cycle(ms): 20 | Current latency: 0.607 ms [==============================================================================================================]       8/8       seconds
+[00:00:07] Group: Frame C | Cycle(ms): 30 | Current latency: 0.709 ms [==============================================================================================================]       8/8       seconds
+
+Summary:
+  API: KuksaValV1
+  Run seconds:         8
+  Skipped run seconds: 4
+
+Group: Frame A | Cycle time(ms): 10
+  Average:     0.710 ms
+  95% in under 0.851 ms
+
+
+Group: Frame B | Cycle time(ms): 20
+  Average:     0.614 ms
+  95% in under 0.738 ms
+
+
+Group: Frame C | Cycle time(ms): 30
+  Average:     0.701 ms
+  95% in under 0.855 ms
+
+```
+
+For a detailed output of the results, please enable the corresponding flag like:
+
+```
+./target/release/databroker-perf --detail-output
+```
+
 ## Group config file
 
 Databroker-perf creates two new gRPC channels for each group: one for the provider and one for the subscriber.
