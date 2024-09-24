@@ -55,7 +55,7 @@ struct Args {
     #[clap(
         long,
         display_order = 5,
-        value_name = "ITERATIONS",
+        value_name = "RUN_SECONDS",
         default_value_t = 4
     )]
     skip_seconds: u64,
@@ -67,18 +67,18 @@ struct Args {
         value_name = "Detailed ouput result",
         default_value_t = false
     )]
-    detail_output: bool,
+    detailed_output: bool,
 
-    /// Path to configuration file
-    #[clap(long = "config", display_order = 7, value_name = "FILE")]
-    config_file: Option<String>,
+    /// Path to test data file
+    #[clap(long = "test-data-file", display_order = 7, value_name = "FILE")]
+    test_data_file: Option<String>,
 
     /// Run the measurements forever (until receiving a shutdown signal).
     #[clap(
         long,
         action = clap::ArgAction::SetTrue,
         display_order = 8,
-        conflicts_with = "seconds",
+        conflicts_with = "run_seconds",
         default_value_t = false
     )]
     run_forever: bool,
@@ -117,7 +117,7 @@ async fn main() -> Result<()> {
         api = Api::KuksaValV2;
     }
 
-    let config_groups = read_config(args.config_file.as_ref())?;
+    let config_groups = read_config(args.test_data_file.as_ref())?;
 
     // Skip at most _iterations_ number of iterations
     let skip_seconds = max(0, min(args.run_seconds, args.skip_seconds));
@@ -130,7 +130,7 @@ async fn main() -> Result<()> {
         skip_seconds,
         api,
         run_forever: args.run_forever,
-        detail_output: args.detail_output,
+        detailed_output: args.detailed_output,
     };
 
     perform_measurement(measurement_config, config_groups, shutdown_handler).await?;

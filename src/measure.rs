@@ -20,7 +20,7 @@ use crate::config::{Group, Signal};
 
 use crate::shutdown::ShutdownHandler;
 use crate::subscriber::{self, Subscriber};
-use crate::utils::write_output;
+use crate::utils::{write_global_output, write_output};
 use anyhow::{Context, Result};
 use hdrhistogram::Histogram;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -55,7 +55,7 @@ pub struct MeasurementConfig {
     pub skip_seconds: u64,
     pub api: Api,
     pub run_forever: bool,
-    pub detail_output: bool,
+    pub detailed_output: bool,
 }
 
 pub struct MeasurementContext {
@@ -73,7 +73,7 @@ pub struct MeasurementContext {
 pub struct MeasurementResult {
     pub measurement_context: MeasurementContext,
     pub iterations_executed: u64,
-    pub iterations_skipped: u64,
+    pub signals_skipped: u64,
     pub start_time: SystemTime,
 }
 
@@ -111,12 +111,14 @@ fn create_databroker_endpoint(host: String, port: u64) -> Result<Endpoint> {
 
     let endpoint = tonic::transport::Channel::from_shared(databroker_address.clone())
         .with_context(|| "Failed to parse server url")?;
-    let endpoint = endpoint
-        .initial_stream_window_size(1000 * 3 * 128 * 1024) // 20 MB stream window size
-        .initial_connection_window_size(1000 * 3 * 128 * 1024) // 20 MB connection window size
-        .keep_alive_timeout(Duration::from_secs(1)) // 60 seconds keepalive time
-        .keep_alive_timeout(Duration::from_secs(1)) // 20 seconds keepalive timeout
-        .timeout(Duration::from_secs(1));
+
+    // Leave out for now until we decide what and how to configure it
+    // let endpoint = endpoint
+    //     .initial_stream_window_size(1000 * 3 * 128 * 1024) // 20 MB stream window size
+    //     .initial_connection_window_size(1000 * 3 * 128 * 1024) // 20 MB connection window size
+    //     .keep_alive_timeout(Duration::from_secs(1)) // 60 seconds keepalive time
+    //     .keep_alive_timeout(Duration::from_secs(1)) // 20 seconds keepalive timeout
+    //     .timeout(Duration::from_secs(1));
 
     Ok(endpoint)
 }
@@ -226,7 +228,7 @@ pub async fn perform_measurement(
         };
 
         tasks.spawn(async move {
-            let (iterations_executed, iterations_skipped) =
+            let (iterations_executed, signals_skipped) =
                 measurement_loop(&mut measurement_context).await.unwrap();
 
             measurement_context.progress.finish();
@@ -234,7 +236,7 @@ pub async fn perform_measurement(
             Ok(MeasurementResult {
                 measurement_context,
                 iterations_executed,
-                iterations_skipped,
+                signals_skipped,
                 start_time,
             })
         });
@@ -267,27 +269,17 @@ pub async fn perform_measurement(
         }
     }
 
-    print!("\n\nSummary:");
-    print!("\n  API: {}", measurement_config.api);
-    if measurement_config.run_forever {
-        print!("\n  Run forever:         Activated");
-    } else {
-        print!(
-            "\n  Run seconds:         {}",
-            measurement_config.run_seconds
-        );
-    }
-    print!(
-        "\n  Skipped run seconds: {}",
-        measurement_config.skip_seconds
-    );
+    let _ = write_global_output(&measurement_config, &measurements_results);
 
-    for group in config_groups {
-        let measurement_result = measurements_results
-            .iter()
-            .find(|result| result.measurement_context.group_name == group.group_name)
-            .unwrap();
-        write_output(measurement_result).unwrap();
+    if measurement_config.detailed_output {
+        for group in config_groups {
+            let measurement_result = measurements_results
+                .iter()
+                .find(|result| result.measurement_context.group_name == group.group_name)
+                .unwrap();
+
+            write_output(measurement_result).unwrap();
+        }
     }
     Ok(())
 }

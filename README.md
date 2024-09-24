@@ -90,7 +90,7 @@ Options:
       --host <HOST>                Host address of databroker [default: http://127.0.0.1]
       --port <PORT>                Port of databroker [default: 55555]
       --skip-seconds <ITERATIONS>  Seconds to run (skip) before measuring the latency [default: 4]
-      --detail-output              Print more details in the summary result
+      --detailed-output              Print more details in the summary result
       --config <FILE>              Path to configuration file
       --run-forever                Run the measurements forever (until receiving a shutdown signal)
   -v, --verbosity <LEVEL>          Verbosity level. Can be one of ERROR, WARN, INFO, DEBUG, TRACE [default: WARN]
@@ -134,7 +134,7 @@ Group: Frame C | Cycle time(ms): 30
 For a detailed output of the results, please enable the corresponding flag like:
 
 ```
-./target/release/databroker-perf --detail-output
+./target/release/databroker-perf --detailed-output
 ```
 
 ## Group config file
