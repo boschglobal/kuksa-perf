@@ -3,42 +3,45 @@
 Performance measurement app for KUKSA databroker.
 
 ```
-[00:00:09] Group: Frame 1 | Cycle(ms): 10 | Current latency: 0.868 ms [===========================================================================================================]    1000/1000    iterationsSummary:
+[00:00:10] Group: Frame 1 | Cycle(ms): 10 | Current latency: 0.519 ms [==============================================================================================================]      10/10      seconds
+[00:00:09] Group: Frame 2 | Cycle(ms): 20 | Current latency: 0.562 ms [==============================================================================================================]      10/10      seconds
+[00:00:09] Group: Frame 3 | Cycle(ms): 30 | Current latency: 0.732 ms [==============================================================================================================]      10/10      seconds
 
-Group: Frame 1 | Cycle time(ms): 10
+Global Summary:
   API: KuksaValV2
-  Elapsed time: 9.99 s
-  Rate limit: 10 ms between iterations
-  Sent: 1000 iterations * 1 signals = 1000 updates
-  Skipped: 10 updates
-  Received: 990 updates
-  Fastest:   0.192 ms
-  Slowest:   1.162 ms
-  Average:   0.817 ms
+  Run seconds: 10
+  Skipped run seconds: 5
+  Total signals: 8 signals
+  Sent: 3819 signal updates
+  Skipped: 1918 signal updates
+  Received: 1901 signal updates
+  Signal/Second: 380 signal/s
+  Fastest:   0.109 ms
+  Slowest:   1.487 ms
+  Average:   0.628 ms
 
 Latency histogram:
-    0.220 ms [1    ] |
-    0.308 ms [6    ] |∎
-    0.396 ms [6    ] |∎
-    0.484 ms [6    ] |∎
-    0.572 ms [14   ] |∎∎
-    0.660 ms [81   ] |∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎
-    0.748 ms [263  ] |∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎
-    0.836 ms [310  ] |∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎
-    0.924 ms [246  ] |∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎∎
-    1.012 ms [50   ] |∎∎∎∎∎∎∎∎∎
-    1.100 ms [5    ] |
-    1.188 ms [2    ] |
+    0.063 ms [2    ] |
+    0.188 ms [190  ] |∎
+    0.313 ms [303  ] |∎∎
+    0.438 ms [193  ] |∎
+    0.563 ms [175  ] |∎
+    0.688 ms [385  ] |∎∎∎
+    0.813 ms [252  ] |∎∎
+    0.938 ms [207  ] |∎
+    1.063 ms [142  ] |∎
+    1.188 ms [37   ] |
+    1.313 ms [14   ] |
+    1.438 ms [1    ] |
 
 Latency distribution:
-  10% in under 0.694 ms
-  25% in under 0.747 ms
-  50% in under 0.830 ms
-  75% in under 0.892 ms
-  90% in under 0.942 ms
-  95% in under 0.976 ms
-  99% in under 1.040 ms
-
+  10% in under 0.249 ms
+  25% in under 0.364 ms
+  50% in under 0.659 ms
+  75% in under 0.843 ms
+  90% in under 1.002 ms
+  95% in under 1.076 ms
+  99% in under 1.180 ms
 ```
 
 # Local Setup
@@ -85,17 +88,17 @@ If running on MacOS:
 Usage: databroker-perf [OPTIONS]
 
 Options:
-  -r, --run-seconds <RUN_SECONDS>  Number of seconds to run [default: 8]
-      --api <API>                  Api of databroker [default: kuksa.val.v1] [possible values: kuksa.val.v1, kuksa.val.v2, sdv.databroker.v1]
-      --host <HOST>                Host address of databroker [default: http://127.0.0.1]
-      --port <PORT>                Port of databroker [default: 55555]
-      --skip-seconds <ITERATIONS>  Seconds to run (skip) before measuring the latency [default: 4]
-      --detailed-output              Print more details in the summary result
-      --config <FILE>              Path to configuration file
-      --run-forever                Run the measurements forever (until receiving a shutdown signal)
-  -v, --verbosity <LEVEL>          Verbosity level. Can be one of ERROR, WARN, INFO, DEBUG, TRACE [default: WARN]
-  -h, --help                       Print help
-  -V, --version                    Print version
+  -r, --run-seconds <RUN_SECONDS>   Number of seconds to run [default: 8]
+      --api <API>                   Api of databroker [default: kuksa.val.v1] [possible values: kuksa.val.v1, kuksa.val.v2, sdv.databroker.v1]
+      --host <HOST>                 Host address of databroker [default: http://127.0.0.1]
+      --port <PORT>                 Port of databroker [default: 55555]
+      --skip-seconds <RUN_SECONDS>  Seconds to run (skip) before measuring the latency [default: 4]
+      --detailed-output             Print more details in the summary result
+      --test-data-file <FILE>       Path to test data file
+      --run-forever                 Run the measurements forever (until receiving a shutdown signal)
+  -v, --verbosity <LEVEL>           Verbosity level. Can be one of ERROR, WARN, INFO, DEBUG, TRACE [default: WARN]
+  -h, --help                        Print help
+  -V, --version                     Print version
 ```
 
 ```
@@ -104,31 +107,43 @@ Options:
 
 ## Default test result output
 
-By default, the results output will be shown like this:
+By default, the group results output will be summarised and contracted as follows:
 ```
-[00:00:08] Group: Frame A | Cycle(ms): 10 | Current latency: 0.725 ms [==============================================================================================================]       8/8       seconds
-[00:00:07] Group: Frame B | Cycle(ms): 20 | Current latency: 0.607 ms [==============================================================================================================]       8/8       seconds
-[00:00:07] Group: Frame C | Cycle(ms): 30 | Current latency: 0.709 ms [==============================================================================================================]       8/8       seconds
+Global Summary:
+  API: KuksaValV2
+  Run seconds: 10
+  Skipped run seconds: 5
+  Total signals: 55 signals
+  Sent: 9812 signal updates
+  Skipped: 5155 signal updates
+  Received: 4657 signal updates
+  Signal/Second: 931 signal/s
+  Fastest:   0.137 ms
+  Slowest:   3.755 ms
+  Average:   0.637 ms
 
-Summary:
-  API: KuksaValV1
-  Run seconds:         8
-  Skipped run seconds: 4
+Latency histogram:
+    0.164 ms [850  ] |∎∎
+    0.492 ms [1782 ] |∎∎∎∎∎
+    0.820 ms [1616 ] |∎∎∎∎∎
+    1.148 ms [296  ] |
+    1.476 ms [76   ] |
+    1.804 ms [5    ] |
+    2.132 ms [10   ] |
+    2.460 ms [17   ] |
+    2.788 ms [0    ] |
+    3.116 ms [0    ] |
+    3.444 ms [0    ] |
+    3.772 ms [5    ] |
 
-Group: Frame A | Cycle time(ms): 10
-  Average:     0.710 ms
-  95% in under 0.851 ms
-
-
-Group: Frame B | Cycle time(ms): 20
-  Average:     0.614 ms
-  95% in under 0.738 ms
-
-
-Group: Frame C | Cycle time(ms): 30
-  Average:     0.701 ms
-  95% in under 0.855 ms
-
+Latency distribution:
+  10% in under 0.247 ms
+  25% in under 0.431 ms
+  50% in under 0.633 ms
+  75% in under 0.765 ms
+  90% in under 0.955 ms
+  95% in under 1.098 ms
+  99% in under 1.544 ms
 ```
 
 For a detailed output of the results, please enable the corresponding flag like:
@@ -177,25 +192,25 @@ i. e.
 ## Example with config file
 
 ```
-./target/release/databroker-perf --config configs/config_group_10.json
+./target/release/databroker-perf --test-data-file data/data_group_10.json
 ```
 
 If running on MacOS:
 
 ```
-./target/release/databroker-perf --config configs/config_group_10.json --port 55556
+./target/release/databroker-perf --test-data-file data/data_group_10.json --port 55556
 ```
 
 ## Example with API
 
 ```
-./target/release/databroker-perf --api sdv.databroker.v1 --config configs/config_group_10.json
+./target/release/databroker-perf --api sdv.databroker.v1 --test-data-file data/data_group_10.json
 ```
 
 If running on MacOS:
 
 ```
-./target/release/databroker-perf --api sdv.databroker.v1 --config configs/config_group_10.json --port 55556
+./target/release/databroker-perf --api sdv.databroker.v1 --test-data-file data/data_group_10.json --port 55556
 ```
 
 ## Contributing
