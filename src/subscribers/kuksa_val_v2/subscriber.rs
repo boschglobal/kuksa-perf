@@ -135,7 +135,7 @@ impl SubscriberInterface for Subscriber {
     async fn wait_for(&self, signal: &Signal) -> Result<Receiver<Instant>, Error> {
         match self.signals.get(&signal.id.unwrap()) {
             Some(sender) => Ok(sender.subscribe()),
-            None => Err(Error::SignalNotFound(signal.path.to_string())),
+            None => Err(Error::SignalNotFound(signal.id.unwrap().to_string())),
         }
     }
 }
