@@ -24,7 +24,7 @@ mod config;
 mod measure;
 mod providers;
 mod shutdown;
-mod subscriber;
+mod subscribers;
 mod types;
 mod utils;
 

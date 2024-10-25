@@ -42,7 +42,7 @@ pub struct Provider {
     metadata: HashMap<String, Metadata>,
     id_to_path: HashMap<i32, String>,
     channel: Channel,
-    initial_signals_values: HashMap<String, DataValue>,
+    initial_signals_values: HashMap<Signal, DataValue>,
 }
 
 pub struct Metadata {
@@ -112,10 +112,10 @@ impl ProviderInterface for Provider {
         iteration: u64,
     ) -> Result<Instant, PublishError> {
         let datapoints = if iteration == 0 {
-            HashMap::from_iter(signal_data.iter().map(|path: &Signal| {
-                let metadata = self.metadata.get(&path.path).unwrap();
+            HashMap::from_iter(signal_data.iter().map(|signal: &Signal| {
+                let metadata = self.metadata.get(&signal.path).unwrap();
                 let mut new_value = n_to_value(metadata, iteration).unwrap();
-                if let Some(value) = self.initial_signals_values.get(&path.path) {
+                if let Some(value) = self.initial_signals_values.get(signal) {
                     if DataValue::from(&Some(new_value.clone())) == *value {
                         new_value = n_to_value(metadata, iteration + 1).unwrap();
                     }
@@ -214,6 +214,7 @@ impl ProviderInterface for Provider {
                         self.id_to_path.insert(metadata.id, signal_path.clone());
                         signals_response.push(Signal {
                             path: signal_path.clone(),
+                            id: Some(metadata.id),
                         });
                     }
                 }
@@ -245,7 +246,7 @@ impl ProviderInterface for Provider {
 
     async fn set_initial_signals_values(
         &mut self,
-        initial_signals_values: HashMap<String, DataValue>,
+        initial_signals_values: HashMap<Signal, DataValue>,
     ) -> Result<(), Error> {
         self.initial_signals_values = initial_signals_values;
         Ok(())

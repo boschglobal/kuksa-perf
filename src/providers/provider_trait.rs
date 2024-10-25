@@ -32,7 +32,7 @@ pub trait ProviderInterface: Send + Sync {
         -> Result<Vec<Signal>, Error>;
     async fn set_initial_signals_values(
         &mut self,
-        initial_signals_values: HashMap<String, DataValue>,
+        initial_signals_values: HashMap<Signal, DataValue>,
     ) -> Result<(), Error>;
 }
 

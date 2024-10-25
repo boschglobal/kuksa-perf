@@ -35,7 +35,7 @@ pub struct Provider {
     metadata: HashMap<String, Metadata>,
     id_to_path: HashMap<i32, String>,
     channel: Channel,
-    initial_signals_values: HashMap<String, DataValue>,
+    initial_signals_values: HashMap<Signal, DataValue>,
 }
 
 pub struct Metadata {
@@ -180,7 +180,10 @@ impl ProviderInterface for Provider {
                     },
                 );
                 self.id_to_path.insert(entry.id, entry.name.clone());
-                Signal { path: entry.name }
+                Signal {
+                    path: entry.name,
+                    id: Some(entry.id),
+                }
             })
             .collect();
 
@@ -205,7 +208,7 @@ impl ProviderInterface for Provider {
 
     async fn set_initial_signals_values(
         &mut self,
-        initial_signals_values: HashMap<String, DataValue>,
+        initial_signals_values: HashMap<Signal, DataValue>,
     ) -> Result<(), Error> {
         self.initial_signals_values = initial_signals_values;
         Ok(())

@@ -35,7 +35,7 @@ pub struct Provider {
     tx: Sender<proto::StreamedUpdateRequest>,
     metadata: HashMap<String, Metadata>,
     channel: Channel,
-    initial_signals_values: HashMap<String, DataValue>,
+    initial_signals_values: HashMap<Signal, DataValue>,
 }
 
 pub struct Metadata {
@@ -102,7 +102,7 @@ impl ProviderInterface for Provider {
             Vec::from_iter(signal_data.iter().map(|signal| {
                 let metadata = self.metadata.get(&signal.path).unwrap();
                 let mut new_value = n_to_value(metadata, iteration).unwrap();
-                if let Some(value) = self.initial_signals_values.get(&signal.path) {
+                if let Some(value) = self.initial_signals_values.get(signal) {
                     if DataValue::from(&Some(new_value.clone())) == *value {
                         new_value = n_to_value(metadata, iteration + 1).unwrap();
                     }
@@ -194,6 +194,7 @@ impl ProviderInterface for Provider {
             }
             signals_response.push(Signal {
                 path: entry.path.clone(),
+                id: None,
             });
         }
 
@@ -219,7 +220,7 @@ impl ProviderInterface for Provider {
 
     async fn set_initial_signals_values(
         &mut self,
-        initial_signals_values: HashMap<String, DataValue>,
+        initial_signals_values: HashMap<Signal, DataValue>,
     ) -> Result<(), Error> {
         self.initial_signals_values = initial_signals_values;
         Ok(())

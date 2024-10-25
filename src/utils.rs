@@ -48,6 +48,7 @@ pub fn read_config(config_file: Option<&String>) -> Result<Vec<Group>> {
                     cycle_time_ms: 0,
                     signals: vec![Signal {
                         path: String::from("Vehicle.Speed"),
+                        id: None,
                     }],
                 },
                 Group {
@@ -55,6 +56,7 @@ pub fn read_config(config_file: Option<&String>) -> Result<Vec<Group>> {
                     cycle_time_ms: 0,
                     signals: vec![Signal {
                         path: String::from("Vehicle.IsBrokenDown"),
+                        id: None,
                     }],
                 },
                 Group {
@@ -63,12 +65,15 @@ pub fn read_config(config_file: Option<&String>) -> Result<Vec<Group>> {
                     signals: vec![
                         Signal {
                             path: String::from("Vehicle.Body.Windshield.Front.Wiping.Intensity"),
+                            id: None,
                         },
                         Signal {
                             path: String::from("Vehicle.Body.Windshield.Front.Wiping.Mode"),
+                            id: None,
                         },
                         Signal {
                             path: String::from("Vehicle.Body.Windshield.Front.Wiping.WiperWear"),
+                            id: None,
                         },
                     ],
                 },
