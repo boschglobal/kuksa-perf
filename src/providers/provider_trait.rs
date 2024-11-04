@@ -56,4 +56,7 @@ pub enum PublishError {
 
     #[error("DataType can not be mapped to datapoint value")]
     DataTypeError,
+
+    #[error("Metadata error")]
+    MetadataError,
 }
