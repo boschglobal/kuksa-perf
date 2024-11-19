@@ -23,6 +23,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use csv::Writer;
+use std::fs::{self, File};
+
 use crate::{
     config::{Config, Group, Signal},
     measure::{MeasurementConfig, MeasurementResult},
@@ -263,14 +266,17 @@ pub fn write_output(measurement_result: &MeasurementResult) -> Result<()> {
         measurement_context.hist.len()
     )?;
 
+    let skip_seconds = match measurement_config.skip_seconds {
+        Some(seconds) => {
+            writeln!(stdout, "  Skipped test seconds: {}", seconds)?;
+            seconds
+        }
+        None => 0,
+    };
+
     let throughput = match measurement_config.duration {
-        Some(duration) => {
-            measurement_context.hist.len() / (duration - measurement_config.skip_seconds.unwrap())
-        }
-        None => {
-            measurement_context.hist.len()
-                / (total_duration.as_secs() - measurement_config.skip_seconds.unwrap())
-        }
+        Some(duration) => measurement_context.hist.len() / (duration - skip_seconds),
+        None => measurement_context.hist.len() / (total_duration.as_secs() - skip_seconds),
     };
 
     writeln!(stdout, "  Throughput: {} signal/second", throughput)?;
@@ -302,5 +308,37 @@ pub fn write_output(measurement_result: &MeasurementResult) -> Result<()> {
 
     writeln!(stdout, "\nLatency distribution:")?;
     print_latency_distribution(stdout.by_ref(), &measurement_context.hist).unwrap();
+
+    let _ = output_latency_to_file(
+        &measurement_context.group_name,
+        &measurement_result.measurement_context.latency_series,
+    );
+
+    Ok(())
+}
+
+pub fn output_latency_to_file(
+    group_name: &str,
+    latency_series: &[u64], // Assuming latency is represented as a vector of `u32` values
+) -> Result<()> {
+    let output_dir = "output";
+    fs::create_dir_all(output_dir)?;
+
+    // Create the file path within the output directory
+    let file_path = format!("{}/{}.csv", output_dir, group_name);
+    // Create the CSV file using the group name
+    let file = File::create(&file_path)?;
+    let mut writer = Writer::from_writer(file);
+
+    // Write the CSV header
+    writer.write_record(["Latency (ms)"])?;
+
+    // Write each latency value to the file
+    for latency in latency_series.iter() {
+        writer.write_record(&[latency.to_string()])?;
+    }
+
+    // Flush and finalize the writer
+    writer.flush()?;
     Ok(())
 }

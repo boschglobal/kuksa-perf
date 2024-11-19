@@ -60,6 +60,10 @@ struct Args {
     )]
     detailed_output: bool,
 
+    /// Seconds to run (skip) before measuring the latency.
+    #[clap(long, display_order = 7, default_value_t = 10)]
+    buffer_size: u32,
+
     /// Path to test data file
     #[clap(long = "test-data-file", display_order = 7, value_name = "FILE")]
     test_data_file: Option<String>,
@@ -141,6 +145,7 @@ async fn main() -> Result<()> {
         skip_seconds: args.skip_seconds,
         api,
         detailed_output: args.detailed_output,
+        buffer_size: args.buffer_size,
     };
 
     perform_measurement(measurement_config, config_groups, shutdown_handler).await?;

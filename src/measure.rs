@@ -68,6 +68,7 @@ pub struct MeasurementConfig {
     pub skip_seconds: Option<u64>,
     pub api: Api,
     pub detailed_output: bool,
+    pub buffer_size: u32,
 }
 
 pub struct MeasurementContext {
@@ -79,6 +80,7 @@ pub struct MeasurementContext {
     pub subscriber: Subscriber,
     pub hist: Histogram<u64>,
     pub running_hist: Histogram<u64>,
+    pub latency_series: Vec<u64>,
 }
 
 pub struct MeasurementResult {
@@ -103,6 +105,7 @@ async fn create_subscriber(
     signals: Vec<Signal>,
     api: &Api,
     initial_values_sender: Sender<HashMap<Signal, DataValue>>,
+    buffer_size: u32,
 ) -> Result<Subscriber> {
     let subscriber_channel = endpoint.connect().await.with_context(|| {
         let host = endpoint.uri().host().unwrap_or("unknown host");
@@ -114,10 +117,14 @@ async fn create_subscriber(
     })?;
 
     if *api == Api::KuksaValV2 {
-        let subscriber =
-            s_kuksa_val_v2::Subscriber::new(subscriber_channel, signals, initial_values_sender)
-                .await
-                .unwrap();
+        let subscriber = s_kuksa_val_v2::Subscriber::new(
+            subscriber_channel,
+            signals,
+            initial_values_sender,
+            buffer_size,
+        )
+        .await
+        .unwrap();
         Ok(Subscriber {
             subscriber_interface: Box::new(subscriber),
         })
@@ -208,13 +215,17 @@ pub async fn perform_measurement(
         let mut provider = create_provider(&provider_endpoint, &measurement_config.api).await?;
 
         // Validate metadata signals
-        let signals = provider
+        let ve = provider
             .provider_interface
             .as_mut()
             .validate_signals_metadata(group.signals.as_slice())
-            .await
-            .unwrap();
+            .await;
 
+        let mut signals = Vec::new();
+        match ve {
+            Ok(vec) => signals = vec,
+            Err(e) => println!("Error: {}", e),
+        }
         // Initilize subscriber and initialize initial signal values.
         let (initial_values_sender, mut initial_values_reciever) =
             tokio::sync::mpsc::channel::<HashMap<Signal, DataValue>>(10);
@@ -224,6 +235,7 @@ pub async fn perform_measurement(
             signals.clone(),
             &measurement_config.api,
             initial_values_sender,
+            measurement_config.buffer_size,
         )
         .await?;
 
@@ -256,6 +268,7 @@ pub async fn perform_measurement(
             subscriber,
             hist,
             running_hist,
+            latency_series: Vec::new(),
         };
 
         // Spawn a task for each group
@@ -454,6 +467,7 @@ async fn measurement_loop(ctx: &mut MeasurementContext) -> Result<(u64, u64)> {
                         .try_into()
                         .unwrap();
                     ctx.hist.record(latency)?;
+                    ctx.latency_series.push(latency);
                     ctx.running_hist.record(latency)?;
                 }
                 Ok(Err(Error::Shutdown)) => {
