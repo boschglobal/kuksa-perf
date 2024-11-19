@@ -28,6 +28,7 @@ use tokio::{
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
+//use std::ptr::metadata;
 use tonic::transport::Channel;
 
 pub struct Provider {
@@ -102,7 +103,7 @@ impl ProviderInterface for Provider {
                 metadata.id,
                 proto::Datapoint {
                     timestamp: None,
-                    value: Some(n_to_value(metadata, iteration).unwrap()),
+                    value: Some(n_to_value(metadata.clone(), iteration).unwrap()),
                 },
             )
         }));
@@ -178,645 +179,486 @@ impl ProviderInterface for Provider {
 }
 
 pub fn n_to_value(
-    metadata: &proto::Metadata,
+    metadata: proto::Metadata,
     n: u64,
 ) -> Result<proto::datapoint::Value, PublishError> {
     match proto::DataType::try_from(metadata.data_type) {
-        Ok(proto::DataType::String) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::String(values)) => {
-                    let index = n % values.allowed_values.len() as u64;
-                    let value = values.allowed_values[index as usize].clone();
-                    Ok(proto::datapoint::Value::StringValue(value))
+        Ok(proto::DataType::String) => {
+            if metadata.allowed.is_some() {
+                match metadata.allowed.unwrap().values {
+                    Some(proto::allowed::Values::StringValues(values)) => {
+                        let index = n % values.values.len() as u64;
+                        let value = values.values[index as usize].clone();
+                        return Ok(proto::datapoint::Value::StringValue(value));
+                    }
+                    _ => return Err(PublishError::MetadataError),
                 }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::StringValue(n.to_string())),
-        },
+            }
+            Ok(proto::datapoint::Value::StringValue(n.to_string()))
+        }
         Ok(proto::DataType::Bool) => match n % 2 {
             0 => Ok(proto::datapoint::Value::BoolValue(true)),
             _ => Ok(proto::datapoint::Value::BoolValue(false)),
         },
-        Ok(proto::DataType::Int8) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Signed(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(i8::MIN.into());
-                        let max = values.max.unwrap_or(i8::MAX.into());
-                        let mut value = min + n as i64;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
+        Ok(proto::DataType::Int8) => {
+            if metadata.min.is_some() || metadata.max.is_some() {
+                let min = metadata
+                    .min
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Int32(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
                         }
-                        Ok(proto::datapoint::Value::Int32Value(value as i32))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Int32Value(value as i32))
-                    } else {
-                        Ok(proto::datapoint::Value::Int32Value((n % 128) as i32))
+                    })
+                    .unwrap_or(i8::MIN.into());
+
+                let max = metadata
+                    .max
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Int32(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(i8::MAX.into());
+
+                let mut value = min + (n as i32);
+                if value > max {
+                    value %= max;
+                    if value < min {
+                        value = min;
                     }
                 }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Int32Value((n % 128) as i32)),
-        },
-        Ok(proto::DataType::Int16) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Signed(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(i16::MIN.into());
-                        let max = values.max.unwrap_or(i16::MAX.into());
-                        let mut value = min + n as i64;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
+                Ok(proto::datapoint::Value::Int32Value(value))
+            } else if metadata.allowed.is_some() {
+                let allowed = metadata.allowed.unwrap();
+                if let Some(proto::allowed::Values::Int32Values(values)) = allowed.values {
+                    let index = n % values.values.len() as u64;
+                    let value = values.values[index as usize];
+                    Ok(proto::datapoint::Value::Int32Value(value))
+                } else {
+                    Err(PublishError::DataTypeError)
+                }
+            } else {
+                Ok(proto::datapoint::Value::Int32Value((n % 128) as i32))
+            }
+        }
+        Ok(proto::DataType::Int16) => {
+            if metadata.min.is_some() || metadata.max.is_some() {
+                let min = metadata
+                    .min
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Int32(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
                         }
-                        Ok(proto::datapoint::Value::Int32Value(value as i32))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Int32Value(value as i32))
-                    } else {
-                        Ok(proto::datapoint::Value::Int32Value((n % 128) as i32))
+                    })
+                    .unwrap_or(i16::MIN.into());
+
+                let max = metadata
+                    .max
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Int32(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(i16::MAX.into());
+
+                let mut value = min + (n as i32);
+                if value > max {
+                    value %= max;
+                    if value < min {
+                        value = min;
                     }
                 }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Int32Value((n % 128) as i32)),
-        },
-        Ok(proto::DataType::Int32) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Signed(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(i32::MIN.into());
-                        let max = values.max.unwrap_or(i32::MAX.into());
-                        let mut value = min + n as i64;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
+                Ok(proto::datapoint::Value::Int32Value(value))
+            } else {
+                Ok(proto::datapoint::Value::Int32Value(n as i32))
+            }
+        }
+        Ok(proto::DataType::Int32) => {
+            if metadata.min.is_some() || metadata.max.is_some() {
+                let min = metadata
+                    .min
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Int32(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
                         }
-                        Ok(proto::datapoint::Value::Int32Value(value as i32))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Int32Value(value as i32))
-                    } else {
-                        Ok(proto::datapoint::Value::Int32Value((n % 128) as i32))
+                    })
+                    .unwrap_or(i32::MIN);
+
+                let max = metadata
+                    .max
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Int32(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(i32::MAX);
+
+                let mut value = min + (n as i32);
+                if value > max {
+                    value %= max;
+                    if value < min {
+                        value = min;
                     }
                 }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Int32Value((n % 128) as i32)),
-        },
-        Ok(proto::DataType::Int64) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Signed(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(i64::MIN);
-                        let max = values.max.unwrap_or(i64::MAX);
-                        let mut value = min + n as i64;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
+                Ok(proto::datapoint::Value::Int32Value(value))
+            } else {
+                Ok(proto::datapoint::Value::Int32Value(n as i32))
+            }
+        }
+        Ok(proto::DataType::Int64) => {
+            if metadata.min.is_some() || metadata.max.is_some() {
+                let min = metadata
+                    .min
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Int64(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
                         }
-                        Ok(proto::datapoint::Value::Int64Value(value))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Int64Value(value))
-                    } else {
-                        Ok(proto::datapoint::Value::Int64Value((n % 128) as i64))
+                    })
+                    .unwrap_or(i64::MIN);
+
+                let max = metadata
+                    .max
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Int64(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(i64::MAX);
+
+                let mut value = min + (n as i64);
+                if value > max {
+                    value %= max;
+                    if value < min {
+                        value = min;
                     }
                 }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Int64Value((n % 128) as i64)),
-        },
-        Ok(proto::DataType::Uint8) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Unsigned(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(u8::MIN.into());
-                        let max = values.max.unwrap_or(u8::MAX.into());
-                        let mut value = min + n;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
+                Ok(proto::datapoint::Value::Int64Value(value))
+            } else {
+                Ok(proto::datapoint::Value::Int64Value(n as i64))
+            }
+        }
+        Ok(proto::DataType::Uint8) => {
+            if metadata.min.is_some() || metadata.max.is_some() {
+                let min = metadata
+                    .min
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Uint32(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
                         }
-                        Ok(proto::datapoint::Value::Uint32Value(value as u32))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Uint32Value(value as u32))
-                    } else {
-                        Ok(proto::datapoint::Value::Uint32Value((n % 128) as u32))
+                    })
+                    .unwrap_or(u8::MIN.into());
+
+                let max = metadata
+                    .max
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Uint32(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(u8::MAX.into());
+
+                let mut value = min + n as u32;
+                if value > max {
+                    value %= max;
+                    if value < min {
+                        value = min;
                     }
                 }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Uint32Value((n % 128) as u32)),
-        },
-        Ok(proto::DataType::Uint16) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Unsigned(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(u16::MIN.into());
-                        let max = values.max.unwrap_or(u16::MAX.into());
-                        let mut value = min + n;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
+                Ok(proto::datapoint::Value::Uint32Value(value))
+            } else {
+                Ok(proto::datapoint::Value::Uint32Value((n % 128) as u32))
+            }
+        }
+        Ok(proto::DataType::Uint16) => {
+            if metadata.min.is_some() || metadata.max.is_some() {
+                let min = metadata
+                    .min
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Uint32(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
                         }
-                        Ok(proto::datapoint::Value::Uint32Value(value as u32))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Uint32Value(value as u32))
-                    } else {
-                        Ok(proto::datapoint::Value::Uint32Value((n % 128) as u32))
+                    })
+                    .unwrap_or(u16::MIN.into());
+
+                let max = metadata
+                    .max
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Uint32(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(u16::MAX.into());
+
+                let mut value = min + n as u32;
+                if value > max {
+                    value %= max;
+                    if value < min {
+                        value = min;
                     }
                 }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Uint32Value((n % 128) as u32)),
-        },
-        Ok(proto::DataType::Uint32) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Unsigned(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(u32::MIN.into());
-                        let max = values.max.unwrap_or(u32::MAX.into());
-                        let mut value = min + n;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
+                Ok(proto::datapoint::Value::Uint32Value(value))
+            } else {
+                Ok(proto::datapoint::Value::Uint32Value((n % 128) as u32))
+            }
+        }
+        Ok(proto::DataType::Uint32) => {
+            if metadata.min.is_some() || metadata.max.is_some() {
+                let min = metadata
+                    .min
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Uint32(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
                         }
-                        Ok(proto::datapoint::Value::Uint32Value(value as u32))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Uint32Value(value as u32))
-                    } else {
-                        Ok(proto::datapoint::Value::Uint32Value((n % 128) as u32))
+                    })
+                    .unwrap_or(u32::MIN);
+
+                let max = metadata
+                    .max
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Uint32(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(u32::MAX);
+
+                let mut value = min + n as u32;
+                if value > max {
+                    value %= max;
+                    if value < min {
+                        value = min;
                     }
                 }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Uint32Value((n % 128) as u32)),
-        },
-        Ok(proto::DataType::Uint64) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Unsigned(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(u64::MIN);
-                        let max = values.max.unwrap_or(u64::MAX);
-                        let mut value = min + n;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
+                Ok(proto::datapoint::Value::Uint32Value(value))
+            } else {
+                Ok(proto::datapoint::Value::Uint32Value(n as u32))
+            }
+        }
+        Ok(proto::DataType::Uint64) => {
+            if metadata.min.is_some() || metadata.max.is_some() {
+                let min = metadata
+                    .min
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Uint64(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
                         }
-                        Ok(proto::datapoint::Value::Uint64Value(value))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Uint64Value(value))
-                    } else {
-                        Ok(proto::datapoint::Value::Uint64Value(n % 128))
+                    })
+                    .unwrap_or(u64::MIN);
+
+                let max = metadata
+                    .max
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Uint64(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(u64::MAX);
+
+                let mut value = min + n;
+                if value > max {
+                    value %= max;
+                    if value < min {
+                        value = min;
                     }
                 }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Uint64Value(n % 128)),
-        },
-        Ok(proto::DataType::Float) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::FloatingPoint(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(f32::MIN.into()) as f32;
-                        let max = values.max.unwrap_or(f32::MAX.into()) as f32;
-                        let mut value = min + n as f32;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
+                Ok(proto::datapoint::Value::Uint64Value(value))
+            } else {
+                Ok(proto::datapoint::Value::Uint64Value(n))
+            }
+        }
+        Ok(proto::DataType::Float) => {
+            if metadata.min.is_some() || metadata.max.is_some() {
+                let min = metadata
+                    .min
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Float(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
                         }
-                        Ok(proto::datapoint::Value::FloatValue(value))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize] as f32;
-                        Ok(proto::datapoint::Value::FloatValue(value))
-                    } else {
-                        Ok(proto::datapoint::Value::FloatValue(n as f32))
+                    })
+                    .unwrap_or(f32::MIN);
+
+                let max = metadata
+                    .max
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Float(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(f32::MAX);
+
+                let mut value = min + n as f32;
+                if value > max {
+                    value %= max;
+                    if value < min {
+                        value = min;
                     }
                 }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::FloatValue(n as f32)),
-        },
-        Ok(proto::DataType::Double) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::FloatingPoint(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(f32::MIN.into()) as f32;
-                        let max = values.max.unwrap_or(f32::MAX.into()) as f32;
-                        let mut value = min + n as f32;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
+                Ok(proto::datapoint::Value::FloatValue(value))
+            } else {
+                Ok(proto::datapoint::Value::FloatValue(n as f32))
+            }
+        }
+        Ok(proto::DataType::Double) => {
+            if metadata.min.is_some() || metadata.max.is_some() {
+                let min = metadata
+                    .min
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Double(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
                         }
-                        Ok(proto::datapoint::Value::DoubleValue(value as f64))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize] as f32;
-                        Ok(proto::datapoint::Value::DoubleValue(value as f64))
-                    } else {
-                        Ok(proto::datapoint::Value::DoubleValue(n as f64))
+                    })
+                    .unwrap_or(f64::MIN);
+
+                let max = metadata
+                    .max
+                    .and_then(|value| {
+                        if let Some(proto::value_restriction::TypedValue::Double(s)) =
+                            value.typed_value
+                        {
+                            Some(s)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(f64::MAX);
+
+                let mut value = min + n as f64;
+                if value > max {
+                    value %= max;
+                    if value < min {
+                        value = min;
                     }
                 }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::DoubleValue(n as f64)),
-        },
-        Ok(proto::DataType::StringArray) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::String(values)) => {
-                    let index = n % values.allowed_values.len() as u64;
-                    let value = values.allowed_values[index as usize].clone();
-                    Ok(proto::datapoint::Value::StringArray(proto::StringArray {
-                        values: vec![value],
-                    }))
+                Ok(proto::datapoint::Value::DoubleValue(value))
+            } else {
+                Ok(proto::datapoint::Value::DoubleValue(n as f64))
+            }
+        }
+        Ok(proto::DataType::StringArray) => {
+            if metadata.allowed.is_some() {
+                match metadata.allowed.unwrap().values {
+                    Some(proto::allowed::Values::StringValues(values)) => {
+                        let index = n % values.values.len() as u64;
+                        let value = values.values[index as usize].clone();
+                        return Ok(proto::datapoint::Value::StringArray(proto::StringArray {
+                            values: vec![value],
+                        }));
+                    }
+                    _ => return Err(PublishError::MetadataError),
                 }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::StringArray(proto::StringArray {
+            }
+            Ok(proto::datapoint::Value::StringArray(proto::StringArray {
                 values: vec![n.to_string()],
-            })),
-        },
-        Ok(proto::DataType::BoolArray) => {
-            Ok(proto::datapoint::Value::BoolArray(proto::BoolArray {
-                values: vec![matches!(n % 2, 0)],
             }))
         }
-        Ok(proto::DataType::Int8Array) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Signed(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(i8::MIN.into());
-                        let max = values.max.unwrap_or(i8::MAX.into());
-                        let mut value = min + n as i64;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
-                        }
-                        Ok(proto::datapoint::Value::Int32Array(proto::Int32Array {
-                            values: vec![value as i32],
-                        }))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Int32Array(proto::Int32Array {
-                            values: vec![value as i32],
-                        }))
-                    } else {
-                        Ok(proto::datapoint::Value::Int32Array(proto::Int32Array {
-                            values: vec![(n % 128) as i32],
-                        }))
-                    }
-                }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Int32Array(proto::Int32Array {
-                values: vec![(n % 128) as i32],
-            })),
-        },
-        Ok(proto::DataType::Int16Array) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Signed(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(i16::MIN.into());
-                        let max = values.max.unwrap_or(i16::MAX.into());
-                        let mut value = min + n as i64;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
-                        }
-                        Ok(proto::datapoint::Value::Int32Array(proto::Int32Array {
-                            values: vec![value as i32],
-                        }))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Int32Array(proto::Int32Array {
-                            values: vec![value as i32],
-                        }))
-                    } else {
-                        Ok(proto::datapoint::Value::Int32Array(proto::Int32Array {
-                            values: vec![(n % 128) as i32],
-                        }))
-                    }
-                }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Int32Array(proto::Int32Array {
-                values: vec![(n % 128) as i32],
-            })),
-        },
-        Ok(proto::DataType::Int32Array) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Signed(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(i32::MIN.into());
-                        let max = values.max.unwrap_or(i32::MAX.into());
-                        let mut value = min + n as i64;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
-                        }
-                        Ok(proto::datapoint::Value::Int32Array(proto::Int32Array {
-                            values: vec![value as i32],
-                        }))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Int32Array(proto::Int32Array {
-                            values: vec![value as i32],
-                        }))
-                    } else {
-                        Ok(proto::datapoint::Value::Int32Array(proto::Int32Array {
-                            values: vec![(n % 128) as i32],
-                        }))
-                    }
-                }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Int32Array(proto::Int32Array {
-                values: vec![(n % 128) as i32],
-            })),
-        },
-        Ok(proto::DataType::Int64Array) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Signed(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(i64::MIN);
-                        let max = values.max.unwrap_or(i64::MAX);
-                        let mut value = min + n as i64;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
-                        }
-                        Ok(proto::datapoint::Value::Int64Array(proto::Int64Array {
+        Ok(proto::DataType::Uint8Array) => {
+            if metadata.allowed.is_some() {
+                match metadata.allowed.unwrap().values {
+                    Some(proto::allowed::Values::Uint32Values(values)) => {
+                        let index = n % values.values.len() as u64;
+                        let value = values.values[index as usize];
+                        return Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
                             values: vec![value],
-                        }))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Int64Array(proto::Int64Array {
-                            values: vec![value],
-                        }))
-                    } else {
-                        Ok(proto::datapoint::Value::Int64Array(proto::Int64Array {
-                            values: vec![(n % 128) as i64],
-                        }))
+                        }));
                     }
+                    _ => return Err(PublishError::MetadataError),
                 }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Int64Array(proto::Int64Array {
-                values: vec![(n % 128) as i64],
-            })),
-        },
-        Ok(proto::DataType::Uint8Array) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Unsigned(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(u8::MIN.into());
-                        let max = values.max.unwrap_or(u8::MAX.into());
-                        let mut value = min + n;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
-                        }
-                        Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
-                            values: vec![value as u32],
-                        }))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
-                            values: vec![value as u32],
-                        }))
-                    } else {
-                        Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
-                            values: vec![(n % 128) as u32],
-                        }))
-                    }
-                }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
+            }
+            Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
                 values: vec![(n % 128) as u32],
-            })),
-        },
-        Ok(proto::DataType::Uint16Array) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Unsigned(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(u16::MIN.into());
-                        let max = values.max.unwrap_or(u16::MAX.into());
-                        let mut value = min + n;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
-                        }
-                        Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
-                            values: vec![value as u32],
-                        }))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
-                            values: vec![value as u32],
-                        }))
-                    } else {
-                        Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
-                            values: vec![(n % 128) as u32],
-                        }))
-                    }
-                }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
-                values: vec![(n % 128) as u32],
-            })),
-        },
-        Ok(proto::DataType::Uint32Array) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Unsigned(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(u32::MIN.into());
-                        let max = values.max.unwrap_or(u32::MAX.into());
-                        let mut value = min + n;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
-                        }
-                        Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
-                            values: vec![value as u32],
-                        }))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
-                            values: vec![value as u32],
-                        }))
-                    } else {
-                        Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
-                            values: vec![(n % 128) as u32],
-                        }))
-                    }
-                }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Uint32Array(proto::Uint32Array {
-                values: vec![(n % 128) as u32],
-            })),
-        },
-        Ok(proto::DataType::Uint64Array) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::Unsigned(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(u64::MIN);
-                        let max = values.max.unwrap_or(u64::MAX);
-                        let mut value = min + n;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
-                        }
-                        Ok(proto::datapoint::Value::Uint64Array(proto::Uint64Array {
-                            values: vec![value],
-                        }))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize];
-                        Ok(proto::datapoint::Value::Uint64Array(proto::Uint64Array {
-                            values: vec![value],
-                        }))
-                    } else {
-                        Ok(proto::datapoint::Value::Uint64Array(proto::Uint64Array {
-                            values: vec![n % 128],
-                        }))
-                    }
-                }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::Uint64Array(proto::Uint64Array {
-                values: vec![n % 128],
-            })),
-        },
-        Ok(proto::DataType::FloatArray) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::FloatingPoint(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(f32::MIN.into()) as f32;
-                        let max = values.max.unwrap_or(f32::MAX.into()) as f32;
-                        let mut value = min + n as f32;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
-                        }
-                        Ok(proto::datapoint::Value::FloatArray(proto::FloatArray {
-                            values: vec![value],
-                        }))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize] as f32;
-                        Ok(proto::datapoint::Value::FloatArray(proto::FloatArray {
-                            values: vec![value],
-                        }))
-                    } else {
-                        Ok(proto::datapoint::Value::FloatArray(proto::FloatArray {
-                            values: vec![n as f32],
-                        }))
-                    }
-                }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::FloatArray(proto::FloatArray {
-                values: vec![n as f32],
-            })),
-        },
-        Ok(proto::DataType::DoubleArray) => match &metadata.value_restriction {
-            Some(value_restriction) => match &value_restriction.r#type {
-                Some(proto::value_restriction::Type::FloatingPoint(values)) => {
-                    if values.max.is_some() || values.min.is_some() {
-                        let min = values.min.unwrap_or(f32::MIN.into()) as f32;
-                        let max = values.max.unwrap_or(f32::MAX.into()) as f32;
-                        let mut value = min + n as f32;
-                        if value > max {
-                            value %= max;
-                            if value < min {
-                                value = min;
-                            }
-                        }
-                        Ok(proto::datapoint::Value::DoubleArray(proto::DoubleArray {
-                            values: vec![value as f64],
-                        }))
-                    } else if !values.allowed_values.is_empty() {
-                        let index = n % values.allowed_values.len() as u64;
-                        let value = values.allowed_values[index as usize] as f32;
-                        Ok(proto::datapoint::Value::DoubleArray(proto::DoubleArray {
-                            values: vec![value as f64],
-                        }))
-                    } else {
-                        Ok(proto::datapoint::Value::DoubleArray(proto::DoubleArray {
-                            values: vec![n as f64],
-                        }))
-                    }
-                }
-                _ => Err(PublishError::MetadataError),
-            },
-            None => Ok(proto::datapoint::Value::DoubleArray(proto::DoubleArray {
-                values: vec![n as f64],
-            })),
-        },
+            }))
+        }
+        Ok(_) => {
+            println!("metadata: {}", metadata.name);
+            Err(PublishError::DataTypeError)
+        }
+        // Ok(proto::DataType::StringArray) => Err(PublishError::DataTypeError),
+        // Ok(proto::DataType::BoolArray) => Err(PublishError::DataTypeError),
+        // Ok(proto::DataType::Int8Array) => Err(PublishError::DataTypeError),
+        // Ok(proto::DataType::Int16Array) => Err(PublishError::DataTypeError),
+        // Ok(proto::DataType::Int32Array) => Err(PublishError::DataTypeError),
+        // Ok(proto::DataType::Int64Array) => Err(PublishError::DataTypeError),
+        // Ok(proto::DataType::Uint8Array) => Err(PublishError::DataTypeError),
+        // Ok(proto::DataType::Uint16Array) => Err(PublishError::DataTypeError),
+        // Ok(proto::DataType::Uint32Array) => Err(PublishError::DataTypeError),
+        // Ok(proto::DataType::Uint64Array) => Err(PublishError::DataTypeError),
+        // Ok(proto::DataType::FloatArray) => Err(PublishError::DataTypeError),
+        // Ok(proto::DataType::DoubleArray) => Err(PublishError::DataTypeError),
         Err(_) => Err(PublishError::MetadataError),
     }
 }

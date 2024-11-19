@@ -36,6 +36,7 @@ impl Subscriber {
         channel: Channel,
         signals: Vec<Signal>,
         initial_values_sender: tokio::sync::mpsc::Sender<HashMap<Signal, DataValue>>,
+        buffer_size: u32,
     ) -> Result<Self, Error> {
         let signals_c = Arc::new(HashMap::from_iter(signals.clone().into_iter().map(
             |signal| {
@@ -44,7 +45,14 @@ impl Subscriber {
             },
         )));
 
-        Subscriber::start(channel, signals, signals_c.clone(), initial_values_sender).await?;
+        Subscriber::start(
+            channel,
+            signals,
+            signals_c.clone(),
+            initial_values_sender,
+            buffer_size,
+        )
+        .await?;
 
         Ok(Self { signals: signals_c })
     }
@@ -54,8 +62,16 @@ impl Subscriber {
         signals: Vec<Signal>,
         signals_map: Arc<HashMap<i32, Sender<Instant>>>,
         initial_values_sender: tokio::sync::mpsc::Sender<HashMap<Signal, DataValue>>,
+        buffer_size: u32,
     ) -> Result<(), Error> {
-        Self::handle_kuksa_val_v2(channel, signals, signals_map, initial_values_sender).await
+        Self::handle_kuksa_val_v2(
+            channel,
+            signals,
+            signals_map,
+            initial_values_sender,
+            buffer_size,
+        )
+        .await
     }
 
     async fn handle_kuksa_val_v2(
@@ -63,6 +79,7 @@ impl Subscriber {
         signals: Vec<Signal>,
         signals_map: Arc<HashMap<i32, Sender<Instant>>>,
         initial_values_sender: tokio::sync::mpsc::Sender<HashMap<Signal, DataValue>>,
+        buffer_size: u32,
     ) -> Result<(), Error> {
         let mut ids = Vec::with_capacity(signals.len());
         for signal in signals {
@@ -71,7 +88,10 @@ impl Subscriber {
 
         let mut client = kuksa_val_v2::val_client::ValClient::new(channel);
 
-        let args = tonic::Request::new(kuksa_val_v2::SubscribeByIdRequest { signal_ids: ids });
+        let args = tonic::Request::new(kuksa_val_v2::SubscribeByIdRequest {
+            buffer_size,
+            signal_ids: ids,
+        });
 
         match client.subscribe_by_id(args).await {
             Ok(response) => {
