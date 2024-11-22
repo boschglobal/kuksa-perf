@@ -68,7 +68,7 @@ pub struct MeasurementConfig {
     pub skip_seconds: Option<u64>,
     pub api: Api,
     pub detailed_output: bool,
-    pub buffer_size: u32,
+    pub buffer_size: Option<u32>,
 }
 
 pub struct MeasurementContext {
@@ -105,7 +105,7 @@ async fn create_subscriber(
     signals: Vec<Signal>,
     api: &Api,
     initial_values_sender: Sender<HashMap<Signal, DataValue>>,
-    buffer_size: u32,
+    buffer_size: Option<u32>,
 ) -> Result<Subscriber> {
     let subscriber_channel = endpoint.connect().await.with_context(|| {
         let host = endpoint.uri().host().unwrap_or("unknown host");
@@ -121,7 +121,7 @@ async fn create_subscriber(
             subscriber_channel,
             signals,
             initial_values_sender,
-            buffer_size,
+            buffer_size.unwrap_or(10),
         )
         .await
         .unwrap();
