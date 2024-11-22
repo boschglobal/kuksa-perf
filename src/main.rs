@@ -61,8 +61,8 @@ struct Args {
     detailed_output: bool,
 
     /// Seconds to run (skip) before measuring the latency.
-    #[clap(long, display_order = 7, default_value_t = 10)]
-    buffer_size: u32,
+    #[clap(long, display_order = 7)]
+    buffer_size: Option<u32>,
 
     /// Path to test data file
     #[clap(long = "test-data-file", display_order = 7, value_name = "FILE")]
@@ -124,11 +124,18 @@ async fn main() -> Result<()> {
         }
     }
 
-    let mut api = Api::KuksaValV1;
-    if args.api.contains("sdv.databroker.v1") {
-        api = Api::SdvDatabrokerV1;
+    let api = if args.api.contains("sdv.databroker.v1") {
+        Api::SdvDatabrokerV1
     } else if args.api.contains("kuksa.val.v2") {
-        api = Api::KuksaValV2;
+        Api::KuksaValV2
+    } else {
+        Api::KuksaValV1
+    };
+
+    if let Some(_) = args.buffer_size {
+        if matches!(api, Api::SdvDatabrokerV1 | Api::KuksaValV1) {
+            println!("Warning: buffer_size will be ignored, only supported for kuksa.val.v2 API");
+        }
     }
 
     let config_groups = read_config(args.test_data_file.as_ref())?;
