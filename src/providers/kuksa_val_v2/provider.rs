@@ -14,6 +14,7 @@
 use crate::config::Signal;
 use crate::providers::provider_trait::{Error, ProviderInterface, PublishError};
 use crate::types::DataValue;
+use serde_json::json;
 
 use databroker_proto::kuksa::val::v2::{
     self as proto, open_provider_stream_request,
@@ -34,15 +35,19 @@ use tokio::{
 };
 
 use tonic::transport::Channel;
+use zenoh::bytes::ZBytes;
+use zenoh::config::WhatAmI;
+use zenoh::key_expr::KeyExpr;
 
 use std::collections::HashMap;
+use tokio_stream::StreamExt;
 
 pub struct Provider {
     tx: Sender<proto::OpenProviderStreamRequest>,
     metadata: HashMap<String, proto::Metadata>,
     id_to_path: HashMap<i32, String>,
     channel: Channel,
-    initial_signals_values: HashMap<Signal, DataValue>,
+    initial_signals_values: HashMap<Signal, DataValue>
 }
 
 impl Provider {
@@ -63,40 +68,66 @@ impl Provider {
         rx: Receiver<proto::OpenProviderStreamRequest>,
         channel: Channel,
     ) -> Result<(), Error> {
-        let mut client = proto::val_client::ValClient::new(channel);
-        match client.open_provider_stream(ReceiverStream::new(rx)).await {
-            Ok(response) => {
-                let mut stream = response.into_inner();
+        let mut config = zenoh::config::Config::default();
 
-                let task = tokio::spawn(async move {
-                    while let Ok(Some(resp)) = stream.message().await {
-                        match resp.action {
-                            Some(ProvideActuationResponse(_)) => {}
-                            Some(PublishValuesResponse(response)) => {
-                                if !response.status.is_empty() {
-                                    if let Some((id, value)) = response.status.iter().next() {
-                                        error!(
-                                            "Singal id: {} | error setting datapoint {}",
-                                            id, value.message
-                                        );
-                                        return Err::<(), Error>(Error::PublishError(
-                                            PublishError::SendFailure(value.message.clone()),
-                                        ));
-                                    }
-                                }
-                            }
-                            Some(BatchActuateStreamRequest(_)) => {}
-                            None => {}
-                        }
-                    }
-                    Ok::<(), Error>(())
-                });
-                task.await.unwrap()?
-            }
-            Err(err) => {
-                error!("failed to setup provider stream: {}", err.message());
+        let _ = config.insert_json5("mode", &json!(WhatAmI::Client.to_str()).to_string());
+    
+        let endpoint = vec![format!("udp/127.0.0.1:{}", 17447)];
+    
+        let _ = config.insert_json5("connect/endpoints", &json!(endpoint).to_string());
+    
+        let session = zenoh::open(config).await.unwrap();
+
+        let topic = "vehicle";
+        let pub_key = KeyExpr::try_from(topic).unwrap();
+
+        let publisher = session.declare_publisher(&pub_key).await.unwrap();
+
+        let mut stream = ReceiverStream::new(rx);
+
+        while let Some(message) = stream.next().await {
+
+            use prost::Message;
+            let payload = ZBytes::from(message.encode_to_vec());
+            match publisher.put(payload).await {
+                Ok(_) => {},
+                Err(err) => eprintln!("Failed to publish message: {:?}", err),
             }
         }
+        // let mut client = proto::val_client::ValClient::new(channel);
+        // match client.open_provider_stream(ReceiverStream::new(rx)).await {
+        //     Ok(response) => {
+        //         let mut stream = response.into_inner();
+
+        //         let task = tokio::spawn(async move {
+        //             while let Ok(Some(resp)) = stream.message().await {
+        //                 match resp.action {
+        //                     Some(ProvideActuationResponse(_)) => {}
+        //                     Some(PublishValuesResponse(response)) => {
+        //                         if !response.status.is_empty() {
+        //                             if let Some((id, value)) = response.status.iter().next() {
+        //                                 error!(
+        //                                     "Singal id: {} | error setting datapoint {}",
+        //                                     id, value.message
+        //                                 );
+        //                                 return Err::<(), Error>(Error::PublishError(
+        //                                     PublishError::SendFailure(value.message.clone()),
+        //                                 ));
+        //                             }
+        //                         }
+        //                     }
+        //                     Some(BatchActuateStreamRequest(_)) => {}
+        //                     None => {}
+        //                 }
+        //             }
+        //             Ok::<(), Error>(())
+        //         });
+        //         task.await.unwrap()?
+        //     }
+        //     Err(err) => {
+        //         error!("failed to setup provider stream: {}", err.message());
+        //     }
+        // }
         debug!("provider::run() exiting");
         Ok(())
     }
