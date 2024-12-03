@@ -32,6 +32,7 @@ use anyhow::{Context, Result};
 use hdrhistogram::Histogram;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::error;
+use serde_json::json;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
@@ -43,6 +44,8 @@ use tokio::sync::{mpsc::Sender, RwLock};
 use tokio::task;
 use tokio::{select, task::JoinSet, time::Instant};
 use tonic::transport::Endpoint;
+use zenoh::config::WhatAmI;
+use zenoh::Session;
 
 #[derive(Clone, PartialEq)]
 pub enum Api {
@@ -162,7 +165,12 @@ fn create_databroker_endpoint(host: String, port: u64) -> Result<Endpoint> {
     Ok(endpoint)
 }
 
-async fn create_provider(endpoint: &Endpoint, api: &Api) -> Result<Provider> {
+async fn create_provider(
+    endpoint: &Endpoint,
+    api: &Api,
+    group_name: String,
+    session: Session,
+) -> Result<Provider> {
     let channel = endpoint.connect().await.with_context(|| {
         let host = endpoint.uri().host().unwrap_or("unknown host");
         let port = endpoint
@@ -173,8 +181,8 @@ async fn create_provider(endpoint: &Endpoint, api: &Api) -> Result<Provider> {
     })?;
 
     if *api == Api::KuksaValV2 {
-        let provider =
-            p_kuksa_val_v2::Provider::new(channel).with_context(|| "Failed to setup provider")?;
+        let provider = p_kuksa_val_v2::Provider::new(channel, group_name, session)
+            .with_context(|| "Failed to setup provider")?;
         Ok(Provider {
             provider_interface: Box::new(provider),
         })
@@ -212,7 +220,24 @@ pub async fn perform_measurement(
 
     for group in config_groups.clone() {
         // Initialize provider
-        let mut provider = create_provider(&provider_endpoint, &measurement_config.api).await?;
+
+        let mut config = zenoh::config::Config::default();
+
+        let _ = config.insert_json5("mode", &json!(WhatAmI::Client.to_str()).to_string());
+
+        let endpoint = vec![format!("tcp/127.0.0.1:{}", 17447)];
+
+        let _ = config.insert_json5("connect/endpoints", &json!(endpoint).to_string());
+
+        let session = zenoh::open(config).await.unwrap();
+
+        let mut provider = create_provider(
+            &provider_endpoint,
+            &measurement_config.api,
+            group.group_name.clone(),
+            session.clone(),
+        )
+        .await?;
 
         // Validate metadata signals
         let ve = provider

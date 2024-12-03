@@ -38,6 +38,7 @@ use tonic::transport::Channel;
 use zenoh::bytes::ZBytes;
 use zenoh::config::WhatAmI;
 use zenoh::key_expr::KeyExpr;
+use zenoh::Session;
 
 use std::collections::HashMap;
 use tokio_stream::StreamExt;
@@ -47,14 +48,14 @@ pub struct Provider {
     metadata: HashMap<String, proto::Metadata>,
     id_to_path: HashMap<i32, String>,
     channel: Channel,
-    initial_signals_values: HashMap<Signal, DataValue>
+    initial_signals_values: HashMap<Signal, DataValue>,
 }
 
 impl Provider {
-    pub fn new(channel: Channel) -> Result<Self, Error> {
+    pub fn new(channel: Channel, group_name: String, session: Session) -> Result<Self, Error> {
         let (tx, rx) = mpsc::channel(10);
 
-        tokio::spawn(Provider::run(rx, channel.clone()));
+        tokio::spawn(Provider::run(rx, channel.clone(), group_name, session));
         Ok(Provider {
             tx,
             metadata: HashMap::new(),
@@ -67,30 +68,22 @@ impl Provider {
     async fn run(
         rx: Receiver<proto::OpenProviderStreamRequest>,
         channel: Channel,
+        topic_id: String,
+        session: Session,
     ) -> Result<(), Error> {
-        let mut config = zenoh::config::Config::default();
+        let topic = topic_id.to_string();
+        let pub_key = KeyExpr::try_from(topic.clone()).unwrap();
 
-        let _ = config.insert_json5("mode", &json!(WhatAmI::Client.to_str()).to_string());
-    
-        let endpoint = vec![format!("udp/127.0.0.1:{}", 17447)];
-    
-        let _ = config.insert_json5("connect/endpoints", &json!(endpoint).to_string());
-    
-        let session = zenoh::open(config).await.unwrap();
+        println!("Topic channel created: {}", &topic);
 
-        let topic = "vehicle";
-        let pub_key = KeyExpr::try_from(topic).unwrap();
-
-        let publisher = session.declare_publisher(&pub_key).await.unwrap();
-
+        let publisher = session.declare_publisher(pub_key).await.unwrap();
         let mut stream = ReceiverStream::new(rx);
 
         while let Some(message) = stream.next().await {
-
             use prost::Message;
             let payload = ZBytes::from(message.encode_to_vec());
             match publisher.put(payload).await {
-                Ok(_) => {},
+                Ok(_) => {}
                 Err(err) => eprintln!("Failed to publish message: {:?}", err),
             }
         }
