@@ -169,10 +169,7 @@ async fn create_tcp_channel(host: String, port: u64) -> Result<Channel> {
 
     let endpoint = endpoint
         .initial_stream_window_size(100 * 1024 * 1024) // 100 MB stream window size
-        .initial_connection_window_size(100 * 1024 * 1024) // 100 MB connection window size
-        .keep_alive_timeout(Duration::from_secs(1))
-        .keep_alive_timeout(Duration::from_secs(1))
-        .timeout(Duration::from_secs(1));
+        .initial_connection_window_size(100 * 1024 * 1024); // 100 MB connection window size
 
     let channel = endpoint.connect().await.with_context(|| {
         let host = endpoint.uri().host().unwrap_or("unknown host");

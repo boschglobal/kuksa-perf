@@ -380,8 +380,8 @@ dependencies = [
 
 [[package]]
 name = "databroker-proto"
-version = "0.4.7-dev.0"
-source = "git+https://github.com/eclipse-kuksa/kuksa-databroker.git?branch=main#7d93bacd2a8d944ac43e92463c2bd70eb92533be"
+version = "0.6.0-dev.0"
+source = "git+https://github.com/boschglobal/kuksa-databroker.git?branch=feature/poc_streaming_actuate#b0e7c106737b776ac4d62a173c5745eefe8e4048"
 dependencies = [
  "prost",
  "prost-types",

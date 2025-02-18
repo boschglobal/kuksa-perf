@@ -40,6 +40,7 @@ use std::collections::HashMap;
 
 pub struct TriggeringEnd {
     tx: Sender<proto::OpenProviderStreamRequest>,
+    tx_actuate: Sender<proto::ActuateRequest>,
     metadata: HashMap<String, proto::Metadata>,
     id_to_path: HashMap<i32, String>,
     channel: Channel,
@@ -50,15 +51,19 @@ pub struct TriggeringEnd {
 impl TriggeringEnd {
     pub fn new(channel: Channel, operation: &Operation) -> Result<Self, Error> {
         let (tx, rx) = mpsc::channel(10);
+        let (tx_actuate, rx_actuate) = mpsc::channel(10);
 
         match operation {
             Operation::StreamingPublish => {
                 tokio::spawn(TriggeringEnd::open_provider_stream(rx, channel.clone()));
             }
-            Operation::Actuate => (),
+            Operation::Actuate => {
+                tokio::spawn(TriggeringEnd::actuate_stream(rx_actuate, channel.clone()));
+            },
         }
         Ok(TriggeringEnd {
             tx,
+            tx_actuate,
             metadata: HashMap::new(),
             id_to_path: HashMap::new(),
             channel,
@@ -108,6 +113,23 @@ impl TriggeringEnd {
         debug!("provider::run() exiting");
         Ok(())
     }
+
+    async fn actuate_stream(
+        rx: Receiver<proto::ActuateRequest>,
+        channel: Channel,
+    ) -> Result<(), Error> {
+        let mut client = proto::val_client::ValClient::new(channel);
+        match client.actuate_stream(ReceiverStream::new(rx)).await {
+            Ok(_response) => {
+                println!("Response from actuator recevied");
+            }
+            Err(err) => {
+                error!("failed to setup client stream: {}", err.message());
+            }
+        }
+        debug!("client::run() exiting");
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -119,7 +141,7 @@ impl TriggeringEndInterface for TriggeringEnd {
     ) -> Result<Instant, TriggerError> {
         match self.operation {
             Operation::StreamingPublish => {
-                let datapoints = if iteration == 0 {
+                let data_points = if iteration == 0 {
                     HashMap::from_iter(signal_data.iter().map(|signal: &Signal| {
                         let metadata = self.metadata.get(&signal.path).unwrap();
                         let mut new_value = n_to_value(metadata.clone(), iteration).unwrap();
@@ -153,7 +175,7 @@ impl TriggeringEndInterface for TriggeringEnd {
                     action: Some(open_provider_stream_request::Action::PublishValuesRequest(
                         proto::PublishValuesRequest {
                             request_id: 1_i32,
-                            datapoints,
+                            data_points,
                         },
                     )),
                 };
@@ -166,11 +188,11 @@ impl TriggeringEndInterface for TriggeringEnd {
                 Ok(now)
             }
             Operation::Actuate => {
-                let actuate_requests = if iteration == 0 {
-                    Vec::from_iter(signal_data.iter().map(|signal: &Signal| {
-                        let metadata = self.metadata.get(&signal.path).unwrap();
+                let actuate_request = if iteration == 0 {
+                    //Vec::from_iter(signal_data.iter().map(|signal: &Signal| {
+                        let metadata = self.metadata.get(&signal_data[0].path).unwrap();
                         let mut new_value = n_to_value(metadata.clone(), iteration).unwrap();
-                        if let Some(value) = self.initial_signals_values.get(signal) {
+                        if let Some(value) = self.initial_signals_values.get(&signal_data[0]) {
                             if DataValue::from(&Some(new_value.clone())) == *value {
                                 new_value = n_to_value(metadata.clone(), iteration + 1).unwrap();
                             }
@@ -181,27 +203,25 @@ impl TriggeringEndInterface for TriggeringEnd {
                             }),
                             value: Some(new_value),
                         }
-                    }))
+                    //}))
                 } else {
-                    Vec::from_iter(signal_data.iter().map(|path: &Signal| {
-                        let metadata = self.metadata.get(&path.path).unwrap();
+                   // Vec::from_iter(signal_data.iter().map(|path: &Signal| {
+                        let metadata = self.metadata.get(&signal_data[0].path).unwrap();
                         proto::ActuateRequest {
                             signal_id: Some(proto::SignalId {
                                 signal: Some(proto::signal_id::Signal::Id(metadata.id)),
                             }),
                             value: Some(n_to_value(metadata.clone(), iteration + 1).unwrap()),
                         }
-                    }))
+                    //}))
                 };
 
-                let mut client = proto::val_client::ValClient::new(self.channel.clone());
-                let message = proto::BatchActuateRequest { actuate_requests };
-
                 let now = Instant::now();
-                match client.batch_actuate(tonic::Request::new(message)).await {
-                    Ok(_) => Ok(now),
-                    Err(err) => Err(TriggerError::SendFailure(err.to_string())),
-                }
+                self.tx_actuate
+                    .send(actuate_request)
+                    .await
+                    .map_err(|err| TriggerError::SendFailure(err.to_string()))?;
+                Ok(now)
             }
         }
     }
