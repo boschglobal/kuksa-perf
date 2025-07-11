@@ -39,9 +39,13 @@ use tonic::transport::Channel;
 use zenoh::bytes::ZBytes;
 use zenoh::config::WhatAmI;
 use zenoh::key_expr::KeyExpr;
+use zenoh::shm::{BlockOn, GarbageCollect, PosixShmProviderBackend, ShmProviderBuilder, POSIX_PROTOCOL_ID};
+use zenoh::Wait;
 
 use std::collections::HashMap;
 use tokio_stream::StreamExt;
+
+const SHM_SIZE: usize = 32 * 1024 * 1024;
 
 pub struct TriggeringEnd {
     tx: Sender<proto::OpenProviderStreamRequest>,
@@ -80,11 +84,32 @@ impl TriggeringEnd {
 
         let _ = config.insert_json5("mode", &json!(WhatAmI::Client.to_str()).to_string());
     
-        let endpoint = vec![format!("udp/127.0.0.1:{}", 17447)];
+        let endpoint = vec![format!("unixpipe/example-pipe")];
     
         let _ = config.insert_json5("connect/endpoints", &json!(endpoint).to_string());
+
+        let _ = config.insert_json5("transport/shared_memory/enabled", &json!(true).to_string());
     
+        let _ = config.insert_json5("transport/unicast/lowlatency", &json!(true).to_string());
+    
+        let _ = config.insert_json5("transport/unicast/qos/enabled", &json!(false).to_string());
+    
+        let _ = config.insert_json5("scouting/multicast/enabled", &json!(false).to_string());
+
         let session = zenoh::open(config).await.unwrap();
+
+        // create an SHM backend...
+        let backend: PosixShmProviderBackend = PosixShmProviderBackend::builder()
+        .with_size(SHM_SIZE)
+        .unwrap()
+        .wait()
+        .unwrap();
+
+        // ...and an SHM provider
+        let provider = ShmProviderBuilder::builder()
+            .protocol_id::<POSIX_PROTOCOL_ID>()
+            .backend(backend)
+            .wait();
 
         let topic = "vehicle";
         let pub_key = KeyExpr::try_from(topic).unwrap();
@@ -92,11 +117,25 @@ impl TriggeringEnd {
         let publisher = session.declare_publisher(&pub_key).await.unwrap();
 
         let mut stream = ReceiverStream::new(rx);
+        // Allocate an SHM buffer
+        let mut bufp = provider
+        .alloc(1024)
+        //.with_policy::<BlockOn<GarbageCollect>>()
+        .wait()
+        .unwrap();
 
         while let Some(message) = stream.next().await {
 
             use prost::Message;
-            let payload = ZBytes::from(message.encode_to_vec());
+            debug!("Messarge {:?}", message);
+            let message_bytes = message.encode_to_vec();
+            let length = message_bytes.len();
+            debug!("Messarge {:?}", message_bytes);
+            bufp[..length].clone_from_slice(&message_bytes);
+            //let payload: ZBytes = bufp.into();
+            //let payload: ZBytes = bufp.to_owned().into();
+            let payload: ZBytes = ZBytes::from(&bufp[..length]);
+            //let payload = ZBytes::from(message.encode_to_vec());
             match publisher.put(payload).await {
                 Ok(_) => {},
                 Err(err) => eprintln!("Failed to publish message: {:?}", err),
